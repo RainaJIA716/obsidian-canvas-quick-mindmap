@@ -416,7 +416,7 @@ export default class CanvasQuickMindmap extends Plugin {
 
 	private singleSelected(canvas: Canvas): CanvasNode | null {
 		if (canvas.readonly || canvas.selection.size !== 1) return null;
-		const node = canvas.selection.values().next().value as CanvasNode | undefined;
+		const [node] = canvas.selection;
 		if (!node || !("getData" in node) || isGroup(node)) return null; // edges can be selected too
 		return node;
 	}
@@ -883,14 +883,17 @@ export default class CanvasQuickMindmap extends Plugin {
 		new Notice(`${s.renamed} ${file.name}`);
 	}
 
-	/** "<stem>.ext", then "<stem>-1.ext"… — unique across the whole vault so short links never become ambiguous. */
+	/**
+	 * "<stem>.ext", then "<stem>-1.ext"… — a name no other file in the vault has, so a short link to it is never
+	 * ambiguous. Asked of Obsidian's own link resolution (which finds a file by name anywhere), not by listing files.
+	 */
 	private uniquePath(file: TFile, stem: string): string {
-		const taken = new Set(this.app.vault.getFiles().filter((f) => f !== file).map((f) => f.name.toLowerCase()));
 		const folder = file.parent && !file.parent.isRoot() ? file.parent.path + "/" : "";
 		for (let i = 0; ; i++) {
 			const name = `${stem}${i ? `-${i}` : ""}.${file.extension}`;
 			const path = normalizePath(folder + name);
-			if (!taken.has(name.toLowerCase()) && !this.app.vault.getAbstractFileByPath(path)) return path;
+			const sameName = this.app.metadataCache.getFirstLinkpathDest(name, "");
+			if ((!sameName || sameName === file) && !this.app.vault.getAbstractFileByPath(path)) return path;
 		}
 	}
 
