@@ -1,0 +1,112 @@
+/* "+" buttons on the selected node: child on the right, sibling below.
+   Placed just outside the node so they don't cover the native connection dots on its edges.
+   Sizes follow --zoom-multiplier, like the native handles, so they stay the same size on screen. */
+.cqm-add {
+	--cqm-size: calc(22px * var(--zoom-multiplier, 1));
+	position: absolute;
+	width: var(--cqm-size);
+	height: var(--cqm-size);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 50%;
+	background-color: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	box-shadow: var(--shadow-s);
+	color: var(--text-muted);
+	cursor: pointer;
+	z-index: 1;
+}
+.cqm-add svg {
+	width: calc(14px * var(--zoom-multiplier, 1));
+	height: calc(14px * var(--zoom-multiplier, 1));
+	stroke-width: 2.5;
+}
+.cqm-add:hover {
+	background-color: var(--interactive-accent);
+	border-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+.cqm-add-child {
+	left: calc(100% + 14px * var(--zoom-multiplier, 1));
+	top: calc(50% - var(--cqm-size) / 2);
+}
+.cqm-add-sibling {
+	top: calc(100% + 14px * var(--zoom-multiplier, 1));
+	left: calc(50% - var(--cqm-size) / 2);
+}
+
+/* Copy button on a selected image node, top-right corner — styled like Obsidian's embed actions. */
+.cqm-copy {
+	position: absolute;
+	top: calc(8px * var(--zoom-multiplier, 1));
+	right: calc(8px * var(--zoom-multiplier, 1));
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: calc(5px * var(--zoom-multiplier, 1));
+	border-radius: var(--radius-s);
+	background-color: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	box-shadow: var(--shadow-s);
+	color: var(--text-muted);
+	cursor: pointer;
+	z-index: 2;
+}
+.cqm-copy svg {
+	width: calc(16px * var(--zoom-multiplier, 1));
+	height: calc(16px * var(--zoom-multiplier, 1));
+}
+.cqm-copy:hover {
+	color: var(--text-normal);
+	background-color: var(--background-modifier-hover);
+}
+
+/* Hidden copy of a text node used to measure how big its text renders. */
+.cqm-measure {
+	position: absolute;
+	left: -100000px;
+	top: -100000px;
+	visibility: hidden;
+	pointer-events: none;
+}
+.cqm-measure .canvas-node-container {
+	contain: none;
+	width: 4000px;
+	height: auto;
+}
+.cqm-measure p {
+	margin: 0;
+}
+.cqm-measure p.cqm-measure-natural {
+	display: inline-block;
+	white-space: pre;
+}
+.cqm-measure p.cqm-measure-wrap {
+	display: block;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+/* Canvas search: the find bar floats over the top of the canvas instead of pushing it down. */
+.cqm-search.document-search-container {
+	position: absolute;
+	top: var(--size-4-2);
+	left: 50%;
+	transform: translateX(-50%);
+	width: min(560px, calc(100% - 120px));
+	z-index: var(--layer-cover);
+	border-radius: var(--radius-m);
+	box-shadow: var(--shadow-s);
+}
+.cqm-searching .canvas-node:not(.cqm-search-hit),
+.cqm-searching .canvas-edges {
+	opacity: 0.25;
+	transition: opacity 120ms ease;
+}
+.cqm-searching .canvas-node.cqm-search-hit .canvas-node-container {
+	box-shadow: 0 0 0 calc(3px * var(--zoom-multiplier, 1)) var(--text-highlight-bg);
+}
+.cqm-searching .canvas-node.cqm-search-current .canvas-node-container {
+	box-shadow: 0 0 0 calc(3px * var(--zoom-multiplier, 1)) var(--interactive-accent);
+}

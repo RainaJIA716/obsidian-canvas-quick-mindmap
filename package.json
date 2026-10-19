@@ -1,0 +1,19 @@
+{
+  "name": "canvas-quick-mindmap",
+  "version": "0.1.0",
+  "description": "Keyboard mind mapping and brainstorming on Canvas: Enter/Tab add child and sibling nodes, auto layout tree, tidy edges, nodes resize to fit text, search/find, copy and rename pasted images.",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "esbuild": "^0.20.0",
+    "obsidian": "latest",
+    "typescript": "^5.4.0",
+    "@codemirror/state": "^6.4.0",
+    "@codemirror/view": "^6.26.0"
+  }
+}
