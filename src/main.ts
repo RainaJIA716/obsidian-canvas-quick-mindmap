@@ -222,16 +222,29 @@ function nameForms(oldName: string, newName: string): [string, string][] {
 	return forms;
 }
 
+/** Characters that can sit right before / after a file name inside a wikilink or Markdown link. */
+const LINK_BEFORE = new Set(["[", "/", "(", "<"]);
+const LINK_AFTER = new Set(["]", "|", "#", ")", ">", "^"]);
+
+/** Occurrences of `name` that are a whole link target, not part of a longer name ("1.png" inside "image-1.png"). */
+function linkOccurrences(text: string, name: string): number[] {
+	const out: number[] = [];
+	for (let i = text.indexOf(name); i >= 0; i = text.indexOf(name, i + name.length)) {
+		const before = text[i - 1];
+		const after = text[i + name.length];
+		if (LINK_BEFORE.has(before) && (after === undefined || LINK_AFTER.has(after))) out.push(i);
+	}
+	return out;
+}
+
 function mentions(text: string, name: string): boolean {
-	return nameForms(name, name).some(([from]) => text.includes(from));
+	return nameForms(name, name).some(([from]) => linkOccurrences(text, from).length > 0);
 }
 
 function replacements(text: string, oldName: string, newName: string): { from: number; to: number; insert: string }[] {
 	const out: { from: number; to: number; insert: string }[] = [];
 	for (const [from, to] of nameForms(oldName, newName)) {
-		for (let i = text.indexOf(from); i >= 0; i = text.indexOf(from, i + from.length)) {
-			out.push({ from: i, to: i + from.length, insert: to });
-		}
+		for (const i of linkOccurrences(text, from)) out.push({ from: i, to: i + from.length, insert: to });
 	}
 	return out.sort((a, b) => a.from - b.from);
 }
@@ -382,7 +395,12 @@ export default class CanvasQuickMindmap extends Plugin {
 				this.addTidyButtons();
 			}),
 		);
-		this.register(() => activeDocument.querySelectorAll(".cqm-tidy").forEach((el) => el.remove()));
+		// Every canvas, including those in popout windows, not just the active document.
+		this.register(() => {
+			for (const leaf of this.app.workspace.getLeavesOfType("canvas")) {
+				leaf.view.containerEl.querySelectorAll(".cqm-tidy").forEach((el) => el.remove());
+			}
+		});
 
 		this.addSettingTab(new SettingTab(this.app, this));
 	}
@@ -512,7 +530,9 @@ export default class CanvasQuickMindmap extends Plugin {
 	}
 
 	private nodeForEditor(view: EditorView): CanvasNode | null {
-		for (const leaf of this.app.workspace.getLeavesOfType("canvas")) {
+		const leaves = this.app.workspace.getLeavesOfType("canvas");
+		if (!leaves.length) return null; // typing in an ordinary note with no canvas open: nothing to scan
+		for (const leaf of leaves) {
 			const canvas = (leaf.view as CanvasView).canvas;
 			if (!canvas) continue;
 			for (const node of canvas.nodes.values()) {
@@ -562,9 +582,17 @@ export default class CanvasQuickMindmap extends Plugin {
 	measure(canvas: Canvas, text: string): { width: number; height: number } | null {
 		const plain = plainText(text);
 		if (plain === null) return null;
+		// A hidden canvas (background tab, another workspace, a window being restored) has no layout:
+		// every width reads 0 and the node would be shrunk to the 80x60 minimum. Measure nothing then.
+		if (!canvas.canvasEl.isShown()) return null;
+		const live = this.liveParagraph(canvas);
+		if (live) return this.measureBeside(live, plain);
 		const host = canvas.canvasEl.createDiv({ cls: "canvas-node cqm-measure" });
 		try {
 			const container = host.createDiv({ cls: "canvas-node-container" });
+			// The container is absolutely positioned (so the host itself is always 0x0) and 4000px wide
+			// by our CSS: zero here means there is no layout at all.
+			if (!container.offsetWidth) return null;
 			const preview = container
 				.createDiv({ cls: "canvas-node-content markdown-embed" })
 				.createDiv({ cls: "markdown-embed-content" })
@@ -578,8 +606,11 @@ export default class CanvasQuickMindmap extends Plugin {
 
 			p.addClass("cqm-measure-natural");
 			const natural = p.offsetWidth + 2; // a little slack so the line never wraps from rounding
-			const contentWidth = Math.min(natural, Math.max(40, this.settings.maxWidth - padX - border));
 			p.removeClass("cqm-measure-natural");
+			p.addClass("cqm-measure-word");
+			const word = p.offsetWidth + 2;
+			p.removeClass("cqm-measure-word");
+			const contentWidth = this.contentWidth(natural, word, padX + border);
 			p.addClass("cqm-measure-wrap");
 			p.setCssStyles({ width: `${contentWidth}px` });
 			const height = p.offsetHeight;
@@ -591,6 +622,50 @@ export default class CanvasQuickMindmap extends Plugin {
 			};
 		} finally {
 			host.remove();
+		}
+	}
+
+	/** Words are never split: below the longest word the node grows instead, even past the max width. */
+	private contentWidth(natural: number, word: number, chromeX: number): number {
+		return Math.max(word, Math.min(natural, Math.max(40, this.settings.maxWidth - chromeX)));
+	}
+
+	/**
+	 * A paragraph of a text node that is on screen, not being edited and not scrolling. Measuring next to
+	 * it gives exactly the font and paddings real nodes use, whatever the theme or Obsidian version.
+	 */
+	private liveParagraph(canvas: Canvas): { node: CanvasNode; p: HTMLElement } | null {
+		for (const node of canvas.nodes.values()) {
+			if (node.isEditing || node.getData().type !== "text") continue;
+			const p = node.nodeEl.querySelector<HTMLElement>(".markdown-preview-sizer > .el-p > p");
+			const view = p?.closest<HTMLElement>(".markdown-preview-view");
+			if (!p || !view || !p.offsetWidth || !node.nodeEl.offsetWidth) continue;
+			if (view.scrollHeight > view.clientHeight + 1) continue; // a scrollbar would count as padding
+			return { node, p };
+		}
+		return null;
+	}
+
+	/** measure() using a hidden paragraph placed beside a real one, so it inherits the real styles. */
+	private measureBeside(live: { node: CanvasNode; p: HTMLElement }, plain: string): { width: number; height: number } {
+		// Everything around the text: node border, content and preview paddings, as rendered right now.
+		const chromeX = live.node.nodeEl.offsetWidth - live.p.offsetWidth;
+		const probe = live.p.parentElement!.createEl("p", { text: plain || " " });
+		probe.setCssStyles({ position: "absolute", left: "0", top: "0", margin: "0", visibility: "hidden", pointerEvents: "none" });
+		try {
+			probe.setCssStyles({ whiteSpace: "pre", width: "max-content" });
+			const natural = probe.offsetWidth + 2; // a little slack so the line never wraps from rounding
+			probe.setCssStyles({ whiteSpace: "pre-wrap", overflowWrap: "normal", wordBreak: "normal", width: "min-content" });
+			const word = probe.offsetWidth + 2;
+			const contentWidth = this.contentWidth(natural, word, chromeX);
+			probe.setCssStyles({ overflowWrap: "break-word", width: `${contentWidth}px` });
+			const height = probe.offsetHeight;
+			return {
+				width: Math.max(plain ? 80 : 120, Math.ceil(contentWidth + chromeX)),
+				height: Math.max(60, Math.ceil(height + 32)), // a one-line node is the native 60px tall
+			};
+		} finally {
+			probe.remove();
 		}
 	}
 
@@ -768,6 +843,14 @@ export default class CanvasQuickMindmap extends Plugin {
 	private findKeys = new Map<CanvasView, KeymapEventHandler>();
 
 	private addTidyButtons() {
+		// Forget canvases that have been closed, so their views (and everything they hold) can be freed.
+		const open = new Set(this.app.workspace.getLeavesOfType("canvas").map((l) => l.view as CanvasView));
+		for (const [view, handler] of this.findKeys) {
+			if (open.has(view)) continue;
+			view.scope?.unregister(handler);
+			this.findKeys.delete(view);
+		}
+		for (const [view, search] of this.searches) if (!open.has(view)) search.close(false);
 		for (const leaf of this.app.workspace.getLeavesOfType("canvas")) {
 			const view = leaf.view as CanvasView;
 			// Mod+F belongs to "Search current file", whose hotkey fires before any plugin listener.
@@ -786,7 +869,7 @@ export default class CanvasQuickMindmap extends Plugin {
 			const group = createDiv({ cls: "canvas-control-group mod-raised cqm-tidy" });
 			const searchItem = group.createDiv({ cls: "canvas-control-item" });
 			setIcon(searchItem, "search");
-			setTooltip(searchItem, `${t().searchTip} (${Platform.isMacOS ? "⌘" : "Ctrl+"}F)`, { placement: "left" });
+			setTooltip(searchItem, `${t().searchTip} (${usesCmd() ? "⌘" : "Ctrl+"}F)`, { placement: "left" });
 			searchItem.addEventListener("click", () => this.openSearch(view));
 			const item = group.createDiv({ cls: "canvas-control-item" });
 			setIcon(item, "list-tree");
@@ -1007,8 +1090,13 @@ export default class CanvasQuickMindmap extends Plugin {
 	}
 }
 
+/** Apple keyboards (Mac, and iPad / iPhone with a hardware keyboard) use Cmd where others use Ctrl. */
+function usesCmd(): boolean {
+	return Platform.isMacOS || Platform.isIosApp;
+}
+
 function isFindKey(evt: KeyboardEvent): boolean {
-	const mod = Platform.isMacOS ? evt.metaKey && !evt.ctrlKey : evt.ctrlKey && !evt.metaKey;
+	const mod = usesCmd() ? evt.metaKey && !evt.ctrlKey : evt.ctrlKey && !evt.metaKey;
 	return mod && !evt.shiftKey && !evt.altKey && evt.key.toLowerCase() === "f";
 }
 

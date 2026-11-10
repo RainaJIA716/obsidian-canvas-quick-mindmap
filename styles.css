@@ -82,6 +82,13 @@
 	display: inline-block;
 	white-space: pre;
 }
+.cqm-measure p.cqm-measure-word {
+	display: inline-block;
+	white-space: pre-wrap;
+	overflow-wrap: normal;
+	word-break: normal;
+	width: min-content;
+}
 .cqm-measure p.cqm-measure-wrap {
 	display: block;
 	white-space: pre-wrap;
